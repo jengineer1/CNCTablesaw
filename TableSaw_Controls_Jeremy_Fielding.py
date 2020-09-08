@@ -179,6 +179,51 @@ def button_divide():
     cal.delete(0, END)
 
 #Move motors
+def move_steps( steps, delay, axis, limitread )
+    for i in range( steps ):
+        if GPIO.input( limitread ):
+            return 1
+        GPIO.output(axis, GPIO.HIGH)
+        sleep(delay)
+        GPIO.output(axis, GPIO.LOW)
+        sleep(delay)
+    return 0
+
+def accel_steps( steps, delay, axis, limitread )
+    accelrate= 1.2 ;
+    accelsteps= 20 ;
+    
+    # dont bother for tiny moves, just move slowly
+    conststeps= steps - 2 * accelsteps
+    if ( conststeps < 10 ):
+        return move_steps( steps, 4 * delay, axis, limitread )
+    
+    startdelay= delay * pow( accelrate, 2 * accelsteps ) ;
+    for i in range( accelsteps ):
+        if GPIO.input( limitread ):
+            return 1
+        GPIO.output(axis, GPIO.HIGH)
+        sleep(startdelay)
+        startdelay /= accelrate ;
+        GPIO.output(axis, GPIO.LOW)
+        sleep(startdelay)
+        startdelay /= accelrate ;
+        
+    if move_steps( conststeps, delay, axis, limitread ):
+        return 1
+    
+    startdelay= delay
+    for i in range( accelsteps ):
+        if GPIO.input( limitread ):
+            return 1
+        GPIO.output(axis, GPIO.HIGH)
+        sleep(startdelay)
+        startdelay *= accelrate ;
+        GPIO.output(axis, GPIO.LOW)
+        sleep(startdelay)
+        startdelay *= accelrate ;
+        
+    return 0
 
 def move_fence():
     #setup variables
@@ -195,43 +240,27 @@ def move_fence():
     GPIO.setup(fenceendpos, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
     #GPIO.setup(estop, GPIO.IN)
 
-    
     if float(Startposition) < float(new_position):
         dis_to_move =  float(new_position)- float(Startposition)
     
+        GPIO.output(DIR_f, CW_f)
         move_fence_steps = int(stp_per_inch_f * float(dis_to_move))
-        
-        for steps in range(move_fence_steps):
-            if GPIO.input(fenceendpos) == True:
-                Current_fence_position.delete(0,END)
-                Current_fence_position.insert(0, str(MAX_f))
-                break
-            GPIO.output(DIR_f, CW_f)
-            GPIO.output(STEP_f, GPIO.HIGH)
-            sleep(fdelay)
-            GPIO.output(STEP_f, GPIO.LOW)
-            sleep(fdelay)
-            Current_fence_position.delete(0,END)
-            Current_fence_position.insert(0, str(new_position))
-        
+        Current_fence_position.delete(0,END)
+        if move_steps( move_fence_steps, fdelay, STEP_f, fenceendpos ):
+            new_position= MAX_f
+                                 
     elif float(Startposition) > float(new_position):
         dis_to_move =  float(Startposition)- float(new_position)
     
+        GPIO.output(DIR_f, CCW_f)
         move_fence_steps = int(stp_per_inch_f * float(dis_to_move))
-        for steps in range(move_fence_steps):
-            if GPIO.input(fencezero) == True:
-                Current_fence_position.delete(0,END)
-                Current_fence_position.insert(0, str(MIN_f))
-                break
-            GPIO.output(DIR_f, CCW_f)
-            GPIO.output(STEP_f, GPIO.HIGH)
-            sleep(fdelay)
-            GPIO.output(STEP_f, GPIO.LOW)
-            sleep(fdelay)
-            Current_fence_position.delete(0,END)
-            Current_fence_position.insert(0, str(new_position))
+        if move_steps( move_fence_steps, fdelay, STEP_f, fenceendpos ):
+            new_position= MIN_f
+                  
     elif Startposition == new_position:
         return
+
+    Current_fence_position.insert(0, str(new_position))
 
 #reset things for next function
     GPIO.cleanup()
