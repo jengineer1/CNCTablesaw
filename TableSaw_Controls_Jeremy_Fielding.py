@@ -2,6 +2,7 @@
 #Project based on Youtube Video https://youtu.be/JEImn7s7x1o
 from tkinter import *
 from time import sleep
+import time
 import RPi.GPIO as GPIO
 
 
@@ -65,9 +66,11 @@ angle45 = 99
 
 #defining speed for motors
 #Fence
-RPM_f = 500
+#RPM_f = 500 #define speed of fence in inches per second instead
+SPEED_f = 25.658 #(500rpm * 400ppr / 60 sec per min) * (1/129.912814{inch per step}) = 25.658 in / sec 
+ACCEL_f = 50.0 # in/sec^2
 steps_per_revolution_f = 400
-fdelay = 1/((RPM_f*steps_per_revolution_f)/60)
+#fdelay = 1/((RPM_f*steps_per_revolution_f)/60) #not used, will be calculated in move function
 stp_per_inch_f = 129.912814
 #blade angle
 RPM_a = 400
@@ -198,40 +201,36 @@ def move_fence():
     
     if float(Startposition) < float(new_position):
         dis_to_move =  float(new_position)- float(Startposition)
-    
-        move_fence_steps = int(stp_per_inch_f * float(dis_to_move))
-        
-        for steps in range(move_fence_steps):
-            if GPIO.input(fenceendpos) == True:
-                Current_fence_position.delete(0,END)
-                Current_fence_position.insert(0, str(MAX_f))
-                break
-            GPIO.output(DIR_f, CW_f)
-            GPIO.output(STEP_f, GPIO.HIGH)
-            sleep(fdelay)
-            GPIO.output(STEP_f, GPIO.LOW)
-            sleep(fdelay)
-            Current_fence_position.delete(0,END)
-            Current_fence_position.insert(0, str(new_position))
-        
+        GPIO.output(DIR_f, CW_f)
     elif float(Startposition) > float(new_position):
         dis_to_move =  float(Startposition)- float(new_position)
-    
-        move_fence_steps = int(stp_per_inch_f * float(dis_to_move))
-        for steps in range(move_fence_steps):
-            if GPIO.input(fencezero) == True:
-                Current_fence_position.delete(0,END)
-                Current_fence_position.insert(0, str(MIN_f))
-                break
-            GPIO.output(DIR_f, CCW_f)
-            GPIO.output(STEP_f, GPIO.HIGH)
-            sleep(fdelay)
-            GPIO.output(STEP_f, GPIO.LOW)
-            sleep(fdelay)
+        GPIO.output(DIR_f, CCW_f)
+    else:
+      return    
+    move_fence_steps = int(stp_per_inch_f * float(dis_to_move))
+    speed_sp = 0.0001
+    t = time.time() - 0.001 # init
+    for steps in range(move_fence_steps):
+        if GPIO.input(fenceendpos) == True:
             Current_fence_position.delete(0,END)
-            Current_fence_position.insert(0, str(new_position))
-    elif Startposition == new_position:
-        return
+            Current_fence_position.insert(0, str(MAX_f))
+            break
+        delta_t = time.time() - t
+        t = time.time() #save for next frame
+        dist_left = dis_to_move - (steps * (1/stp_per_inch_f))
+        decel_dist = speed_sp / (ACCEL_f/speed_sp)
+        decel_req = dist_left < decel_dist
+        if decel_req:
+            speed_sp = speed_sp - (ACCEL_f * delta_t)
+        else: 
+            speed_sp = min(speed_sp + (ACCEL_f * delta_t), SPEED_f)
+        period = 1 / (speed_sp * stp_per_inch_f) # period = 1 / freq, calc steps per second at speed setpoint
+        GPIO.output(STEP_f, GPIO.HIGH)
+        sleep(period/2.0) #half period up
+        GPIO.output(STEP_f, GPIO.LOW)
+        sleep(period/2.0) #half period down
+        Current_fence_position.delete(0,END)
+        Current_fence_position.insert(0, str(new_position))
 
 #reset things for next function
     GPIO.cleanup()
